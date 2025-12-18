@@ -6,10 +6,13 @@ use std::{
     time::Duration,
 };
 
+use serde::{Deserialize, Serialize};
+use serde_json;
+
 enum Event {
     Tick(u8),
     NewConnection(SocketAddr),
-    Broadcast(Vec<u8>),
+    BroadcastPlayers,
 }
 
 fn main() {
@@ -29,14 +32,14 @@ fn main() {
     let client_tick = event_tx.clone();
     thread::spawn(move || {
         loop {
-            let message = String::from("Tick\n").as_bytes().to_vec();
-            client_tick.send(Event::Broadcast(message)).unwrap();
+            client_tick.send(Event::BroadcastPlayers).unwrap();
             thread::sleep(Duration::from_millis(33));
         }
     });
 
     let mut server = Server {
         socket,
+        players: Arc::new(Mutex::new(HashMap::new())),
         connections: Arc::new(Mutex::new(HashMap::new())),
     };
 
@@ -45,18 +48,20 @@ fn main() {
 
 struct Server {
     socket: UdpSocket,
+    players: Arc<Mutex<HashMap<SocketAddr, Player>>>,
     connections: Arc<Mutex<HashMap<SocketAddr, u8>>>,
 }
 
 impl Server {
     fn run(&mut self, event_tx: mpsc::Sender<Event>, event_rx: mpsc::Receiver<Event>) {
+        let event_tx_clone = event_tx.clone();
         let socket_clone = self.socket.try_clone().unwrap();
         thread::spawn(move || {
             loop {
                 let mut buf = [0; 10];
                 match socket_clone.recv_from(&mut buf) {
                     Ok((_, addr)) => {
-                        event_tx.send(Event::NewConnection(addr)).unwrap();
+                        event_tx_clone.send(Event::NewConnection(addr)).unwrap();
                     }
                     Err(e) => println!("recv function failed: {e:?}"),
                 }
@@ -73,19 +78,39 @@ impl Server {
                         }
                     }
                     connections.retain(|_, v| *v > 0);
-                    println!("{:?}", *connections);
+                    let active_addrs: std::collections::HashSet<SocketAddr> =
+                        connections.keys().cloned().collect();
+                    let mut players = self.players.lock().unwrap();
+                    players.retain(|addr, _| active_addrs.contains(addr));
+                    println!(
+                        "Active connections: {:?}, Players: {:?}",
+                        *connections, *players
+                    );
                 }
                 Event::NewConnection(addr) => {
+                    let player = Player { x: 0, y: 0 };
+                    let mut players = self.players.lock().unwrap();
+                    players.insert(addr, player);
                     let mut connections = self.connections.lock().unwrap();
                     connections.insert(addr, 5);
                 }
-                Event::Broadcast(message) => {
+                Event::BroadcastPlayers => {
+                    let players = self.players.lock().unwrap();
+                    let players_list: Vec<Player> = players.values().cloned().collect();
+                    let json = serde_json::to_string(&players_list).unwrap();
+                    let message = format!("PLAYERS{}\n", json);
                     let connections = self.connections.lock().unwrap();
                     for (addr, _) in connections.iter() {
-                        let _ = self.socket.send_to(&message, addr);
+                        let _ = self.socket.send_to(message.as_bytes(), *addr);
                     }
                 }
             }
         }
     }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct Player {
+    pub x: u16,
+    pub y: u16,
 }
