@@ -7,11 +7,11 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use serde_json;
 
 enum Event {
     Tick(u32),
     NewConnection(SocketAddr),
+    UpdatePlayer(SocketAddr, Player),
     BroadcastPlayers,
 }
 
@@ -59,10 +59,19 @@ impl Server {
         let socket_clone = self.socket.try_clone().unwrap();
         thread::spawn(move || {
             loop {
-                let mut buf = [0; 10];
+                let mut buf = [0; 1024];
                 match socket_clone.recv_from(&mut buf) {
-                    Ok((_, addr)) => {
-                        event_tx_clone.send(Event::NewConnection(addr)).unwrap();
+                    Ok((size, addr)) => {
+                        if let Ok(msg) = std::str::from_utf8(&buf[..size]) {
+                            let trimmed = msg.trim();
+                            if trimmed == "CONNECT" {
+                                event_tx_clone.send(Event::NewConnection(addr)).unwrap();
+                            } else if let Ok(player) = serde_json::from_str::<Player>(trimmed) {
+                                event_tx_clone
+                                    .send(Event::UpdatePlayer(addr, player))
+                                    .unwrap();
+                            }
+                        }
                     }
                     Err(e) => println!("recv function failed: {e:?}"),
                 }
@@ -95,13 +104,21 @@ impl Server {
                     let mut connections = self.connections.lock().unwrap();
                     connections.insert(addr, PLAYER_LIFETIME);
                 }
+                Event::UpdatePlayer(addr, player) => {
+                    let mut players = self.players.lock().unwrap();
+                    players.insert(addr, player);
+                }
                 Event::BroadcastPlayers => {
                     let players = self.players.lock().unwrap();
-                    let players_list: Vec<Player> = players.values().cloned().collect();
-                    let json = serde_json::to_string(&players_list).unwrap();
-                    let message = format!("PLAYERS{}\n", json);
                     let connections = self.connections.lock().unwrap();
                     for (addr, _) in connections.iter() {
+                        let others: Vec<Player> = players
+                            .iter()
+                            .filter(|(a, _)| *a != addr)
+                            .map(|(_, p)| p.clone())
+                            .collect();
+                        let json = serde_json::to_string(&others).unwrap();
+                        let message = format!("PLAYERS{}\n", json);
                         let _ = self.socket.send_to(message.as_bytes(), *addr);
                     }
                 }

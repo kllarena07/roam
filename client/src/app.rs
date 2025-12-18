@@ -6,14 +6,16 @@ use std::{io, net::UdpSocket, sync::mpsc};
 pub enum Event {
     Input(crossterm::event::KeyEvent),
     SetPlayers(Vec<Player>),
+    OwnPosition(Player),
 }
 
 pub struct App {
     pub exit: bool,
     pub players: Vec<Player>,
+    pub own_player: Player,
 }
 
-pub fn run_background_connection(tx: mpsc::Sender<Event>) {
+pub fn run_background_connection(tx: mpsc::Sender<Event>, own_rx: mpsc::Receiver<Event>) {
     let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
     let server_addr = "127.0.0.1:3000";
     if let Err(e) = socket.send_to(b"CONNECT", server_addr) {
@@ -34,6 +36,11 @@ pub fn run_background_connection(tx: mpsc::Sender<Event>) {
                 let _ = tx.send(Event::SetPlayers(players));
             }
         }
+        // Handle own position updates
+        if let Ok(Event::OwnPosition(player)) = own_rx.try_recv() {
+            let json = serde_json::to_string(&player).unwrap();
+            let _ = socket.send_to(json.as_bytes(), server_addr);
+        }
     }
 }
 
@@ -42,11 +49,16 @@ impl App {
         &mut self,
         terminal: &mut DefaultTerminal,
         rx: mpsc::Receiver<Event>,
+        tx: mpsc::Sender<Event>,
     ) -> io::Result<()> {
         while !self.exit {
             match rx.recv().unwrap() {
-                Event::Input(key_event) => self.handle_key_event(key_event)?,
+                Event::Input(key_event) => {
+                    self.handle_key_event(key_event)?;
+                    let _ = tx.send(Event::OwnPosition(self.own_player.clone()));
+                }
                 Event::SetPlayers(players) => self.players = players,
+                _ => {}
             }
             terminal.draw(|frame| self.draw(frame))?;
         }
@@ -70,24 +82,16 @@ impl App {
                     self.exit = true;
                 }
                 KeyCode::Char('w') | KeyCode::Up => {
-                    for player in &mut self.players {
-                        player.y = player.y.saturating_sub(1);
-                    }
+                    self.own_player.y = self.own_player.y.saturating_sub(1);
                 }
                 KeyCode::Char('a') | KeyCode::Left => {
-                    for player in &mut self.players {
-                        player.x = player.x.saturating_sub(2);
-                    }
+                    self.own_player.x = self.own_player.x.saturating_sub(2);
                 }
                 KeyCode::Char('s') | KeyCode::Down => {
-                    for player in &mut self.players {
-                        player.y = player.y.saturating_add(1);
-                    }
+                    self.own_player.y = self.own_player.y.saturating_add(1);
                 }
                 KeyCode::Char('d') | KeyCode::Right => {
-                    for player in &mut self.players {
-                        player.x = player.x.saturating_add(2);
-                    }
+                    self.own_player.x = self.own_player.x.saturating_add(2);
                 }
                 _ => {}
             };
@@ -102,5 +106,6 @@ impl Widget for &App {
         for player in &self.players {
             player.render(area, buf);
         }
+        self.own_player.render(area, buf);
     }
 }

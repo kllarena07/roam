@@ -4,7 +4,7 @@ use ratatui::{
     widgets::Widget,
 };
 
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize, serde::Serialize)]
 pub struct Player {
     pub x: u16,
     pub y: u16,
