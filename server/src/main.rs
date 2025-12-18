@@ -9,7 +9,7 @@ use std::{
 enum Event {
     Tick(u8),
     NewConnection(SocketAddr),
-    Broadcast(String),
+    Broadcast(Vec<u8>),
 }
 
 fn main() {
@@ -29,9 +29,8 @@ fn main() {
     let client_tick = event_tx.clone();
     thread::spawn(move || {
         loop {
-            client_tick
-                .send(Event::Broadcast(String::from("Tick\n")))
-                .unwrap();
+            let message = String::from("Tick\n").as_bytes().to_vec();
+            client_tick.send(Event::Broadcast(message)).unwrap();
             thread::sleep(Duration::from_millis(33));
         }
     });
@@ -81,10 +80,9 @@ impl Server {
                     connections.insert(addr, 5);
                 }
                 Event::Broadcast(message) => {
-                    let b_msg = message.as_bytes();
                     let connections = self.connections.lock().unwrap();
                     for (addr, _) in connections.iter() {
-                        let _ = self.socket.send_to(b_msg, addr);
+                        let _ = self.socket.send_to(&message, addr);
                     }
                 }
             }
