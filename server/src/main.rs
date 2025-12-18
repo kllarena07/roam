@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     net::{SocketAddr, UdpSocket},
-    sync::mpsc,
+    sync::{Arc, Mutex, mpsc},
     thread,
     time::Duration,
 };
@@ -9,7 +9,7 @@ use std::{
 enum Event {
     Tick(u8),
     NewConnection(SocketAddr),
-    SendResponse(SocketAddr, Vec<u8>),
+    Broadcast(String),
 }
 
 fn main() {
@@ -19,17 +19,26 @@ fn main() {
 
     let (event_tx, event_rx) = mpsc::channel::<Event>();
 
-    let tx_clone = event_tx.clone();
+    let server_tick = event_tx.clone();
     thread::spawn(move || {
         loop {
-            tx_clone.send(Event::Tick(1)).unwrap();
+            server_tick.send(Event::Tick(1)).unwrap();
             thread::sleep(Duration::from_millis(1000));
+        }
+    });
+    let client_tick = event_tx.clone();
+    thread::spawn(move || {
+        loop {
+            client_tick
+                .send(Event::Broadcast(String::from("Tick\n")))
+                .unwrap();
+            thread::sleep(Duration::from_millis(33));
         }
     });
 
     let mut server = Server {
         socket,
-        connections: HashMap::new(),
+        connections: Arc::new(Mutex::new(HashMap::new())),
     };
 
     server.run(event_tx, event_rx);
@@ -37,7 +46,7 @@ fn main() {
 
 struct Server {
     socket: UdpSocket,
-    connections: HashMap<SocketAddr, u8>,
+    connections: Arc<Mutex<HashMap<SocketAddr, u8>>>,
 }
 
 impl Server {
@@ -48,7 +57,6 @@ impl Server {
                 let mut buf = [0; 10];
                 match socket_clone.recv_from(&mut buf) {
                     Ok((_, addr)) => {
-                        println!("Received data from {}", addr);
                         event_tx.send(Event::NewConnection(addr)).unwrap();
                     }
                     Err(e) => println!("recv function failed: {e:?}"),
@@ -59,22 +67,25 @@ impl Server {
         loop {
             match event_rx.recv().unwrap() {
                 Event::Tick(tick_amt) => {
-                    for (_, value) in self.connections.iter_mut() {
+                    let mut connections = self.connections.lock().unwrap();
+                    for (_, value) in connections.iter_mut() {
                         if *value > 0 {
                             *value -= tick_amt;
                         }
                     }
-                    self.connections.retain(|_, v| *v > 0);
-                    println!("{:?}", self.connections);
+                    connections.retain(|_, v| *v > 0);
+                    println!("{:?}", *connections);
                 }
                 Event::NewConnection(addr) => {
-                    println!("New connection from {}", addr);
-                    self.connections.insert(addr, 5);
-                    let response = b"Hello from server\n".to_vec();
-                    self.socket.send_to(&response, addr).unwrap();
+                    let mut connections = self.connections.lock().unwrap();
+                    connections.insert(addr, 5);
                 }
-                Event::SendResponse(addr, data) => {
-                    self.socket.send_to(&data, addr).unwrap();
+                Event::Broadcast(message) => {
+                    let b_msg = message.as_bytes();
+                    let connections = self.connections.lock().unwrap();
+                    for (addr, _) in connections.iter() {
+                        let _ = self.socket.send_to(b_msg, addr);
+                    }
                 }
             }
         }
