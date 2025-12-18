@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 
 enum Event {
-    Tick(u8),
+    Tick(u32),
     NewConnection(SocketAddr),
     BroadcastPlayers,
 }
@@ -49,11 +49,12 @@ fn main() {
 struct Server {
     socket: UdpSocket,
     players: Arc<Mutex<HashMap<SocketAddr, Player>>>,
-    connections: Arc<Mutex<HashMap<SocketAddr, u8>>>,
+    connections: Arc<Mutex<HashMap<SocketAddr, u32>>>,
 }
 
 impl Server {
     fn run(&mut self, event_tx: mpsc::Sender<Event>, event_rx: mpsc::Receiver<Event>) {
+        const PLAYER_LIFETIME: u32 = 60;
         let event_tx_clone = event_tx.clone();
         let socket_clone = self.socket.try_clone().unwrap();
         thread::spawn(move || {
@@ -92,7 +93,7 @@ impl Server {
                     let mut players = self.players.lock().unwrap();
                     players.insert(addr, player);
                     let mut connections = self.connections.lock().unwrap();
-                    connections.insert(addr, 5);
+                    connections.insert(addr, PLAYER_LIFETIME);
                 }
                 Event::BroadcastPlayers => {
                     let players = self.players.lock().unwrap();
