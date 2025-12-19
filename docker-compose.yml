@@ -1,0 +1,36 @@
+services:
+  roam-server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000/udp"
+    networks:
+      - roam-network
+    deploy:
+      replicas: 1
+
+  roam-client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    ports:
+      - "3001:22"
+    environment:
+      - SERVER_ADDR=roam-server:3000
+      - SECRETS_LOCATION=/run/secrets/ssh_host_key
+    secrets:
+      - ssh_host_key
+    depends_on:
+      - roam-server
+    networks:
+      - roam-network
+    restart: unless-stopped
+    deploy:
+      replicas: 1
+networks:
+  roam-network:
+    driver: bridge
+secrets:
+  ssh_host_key:
+    file: ./authorized_keys/id_ed25519
