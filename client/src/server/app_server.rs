@@ -175,7 +175,7 @@ impl Handler for AppServer {
         let backend = CrosstermBackend::new(terminal_handle);
 
         let options = TerminalOptions {
-            viewport: Viewport::Fixed(Rect::default()),
+            viewport: Viewport::Fixed(Rect::new(0, 0, 80, 24)),
         };
 
         let terminal = Arc::new(Mutex::new(Terminal::with_options(backend, options)?));
