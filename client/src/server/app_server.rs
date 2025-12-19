@@ -213,7 +213,9 @@ impl Handler for AppServer {
                 app.handle_event(event, &own_tx_clone);
                 if app.exit {
                     let reset_sequence = b"\x1b[0m\x1b[2J\x1b[H\x1b[r\x1b[?25h";
-                    let _ = handle_clone.data(channel_id_clone, reset_sequence.as_ref().into()).await;
+                    let _ = handle_clone
+                        .data(channel_id_clone, reset_sequence.as_ref().into())
+                        .await;
                     let _ = handle_clone.close(channel_id_clone).await;
                     break;
                 }
