@@ -9,6 +9,10 @@ services:
       - roam-network
     deploy:
       replicas: 1
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 1GB
 
   roam-client:
     build:
@@ -28,6 +32,10 @@ services:
     restart: unless-stopped
     deploy:
       replicas: 1
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 1GB
 networks:
   roam-network:
     driver: bridge
