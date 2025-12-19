@@ -2,6 +2,7 @@ use crate::player::Player;
 use crossterm::event::{KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::{DefaultTerminal, Frame, prelude::Buffer, prelude::Rect, widgets::Widget};
 use std::{io, net::UdpSocket, sync::mpsc};
+use tokio::sync::mpsc::{UnboundedSender, UnboundedReceiver};
 
 pub enum Event {
     Input(crossterm::event::KeyEvent),
@@ -9,6 +10,7 @@ pub enum Event {
     OwnPosition(Player),
 }
 
+#[derive(Clone)]
 pub struct App {
     pub exit: bool,
     pub players: Vec<Player>,
@@ -16,8 +18,8 @@ pub struct App {
 }
 
 pub fn run_background_connection(tx: mpsc::Sender<Event>, own_rx: mpsc::Receiver<Event>) {
-    let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
-    let server_addr = "127.0.0.1:3000";
+    let socket = UdpSocket::bind("0.0.0.0:0").unwrap();
+    let server_addr = "100.119.22.31:3000";
     if let Err(e) = socket.send_to(b"CONNECT", server_addr) {
         eprintln!("Failed to connect to server: {}", e);
         return;
@@ -65,7 +67,7 @@ impl App {
         Ok(())
     }
 
-    fn draw(&self, frame: &mut Frame) {
+    pub fn draw(&self, frame: &mut Frame) {
         frame.render_widget(self, frame.area());
     }
 
@@ -98,6 +100,53 @@ impl App {
         }
 
         Ok(())
+    }
+}
+
+impl App {
+    pub fn handle_event(&mut self, event: Event, tx: &UnboundedSender<Event>) {
+        match event {
+            Event::Input(key_event) => {
+                let _ = self.handle_key_event(key_event);
+                let _ = tx.send(Event::OwnPosition(self.own_player.clone()));
+            }
+            Event::SetPlayers(players) => self.players = players,
+            _ => {}
+        }
+    }
+}
+
+pub async fn run_background_connection_async(tx: UnboundedSender<Event>, mut own_rx: UnboundedReceiver<Event>) {
+    let socket = tokio::net::UdpSocket::bind("0.0.0.0:0").await.unwrap();
+    let server_addr = "100.119.22.31:3000";
+    if let Err(e) = socket.send_to(b"CONNECT", server_addr).await {
+        eprintln!("Failed to connect to server: {}", e);
+        return;
+    }
+
+    loop {
+        let mut buf = [0; 1024];
+        tokio::select! {
+            result = socket.recv_from(&mut buf) => {
+                if let Ok((size, _)) = result
+                    && let Ok(msg) = std::str::from_utf8(&buf[..size])
+                    && msg.starts_with("PLAYERS")
+                {
+                    let json_start = "PLAYERS".len();
+                    if let Some(json_str) = msg.get(json_start..).and_then(|s| s.strip_suffix('\n'))
+                        && let Ok(players) = serde_json::from_str::<Vec<Player>>(json_str)
+                    {
+                        let _ = tx.send(Event::SetPlayers(players));
+                    }
+                }
+            }
+            event = own_rx.recv() => {
+                if let Some(Event::OwnPosition(player)) = event {
+                    let json = serde_json::to_string(&player).unwrap();
+                    let _ = socket.send_to(json.as_bytes(), server_addr).await;
+                }
+            }
+        }
     }
 }
 
