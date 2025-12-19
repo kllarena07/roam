@@ -17,7 +17,7 @@ services:
       context: ./client
       dockerfile: Dockerfile
     ports:
-      - "3001:22"
+      - "3000:22"
     environment:
       - SERVER_ADDR=roam-server:3000
       - SECRETS_LOCATION=/run/secrets/ssh_host_key
