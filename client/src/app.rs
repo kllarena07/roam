@@ -2,7 +2,7 @@ use crate::player::Player;
 use crossterm::event::{KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::{DefaultTerminal, Frame, prelude::Buffer, prelude::Rect, widgets::Widget};
 use std::{io, net::UdpSocket, sync::mpsc};
-use tokio::sync::mpsc::{UnboundedSender, UnboundedReceiver};
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 pub enum Event {
     Input(crossterm::event::KeyEvent),
@@ -116,9 +116,12 @@ impl App {
     }
 }
 
-pub async fn run_background_connection_async(tx: UnboundedSender<Event>, mut own_rx: UnboundedReceiver<Event>) {
+pub async fn run_background_connection_async(
+    tx: UnboundedSender<Event>,
+    mut own_rx: UnboundedReceiver<Event>,
+) {
     let socket = tokio::net::UdpSocket::bind("0.0.0.0:0").await.unwrap();
-    let server_addr = "100.119.22.31:3000";
+    let server_addr = "0.0.0.0:3000";
     if let Err(e) = socket.send_to(b"CONNECT", server_addr).await {
         eprintln!("Failed to connect to server: {}", e);
         return;
