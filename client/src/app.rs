@@ -1,7 +1,7 @@
 use crate::player::Player;
 use crossterm::event::{KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::{DefaultTerminal, Frame, prelude::Buffer, prelude::Rect, widgets::Widget};
-use std::{io, net::UdpSocket, sync::mpsc};
+use std::{env, io, net::UdpSocket, sync::mpsc};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 pub enum Event {
@@ -19,8 +19,8 @@ pub struct App {
 
 pub fn run_background_connection(tx: mpsc::Sender<Event>, own_rx: mpsc::Receiver<Event>) {
     let socket = UdpSocket::bind("0.0.0.0:0").unwrap();
-    let server_addr = "100.119.22.31:3000";
-    if let Err(e) = socket.send_to(b"CONNECT", server_addr) {
+    let server_addr = env::var("SERVER_ADDR").unwrap();
+    if let Err(e) = socket.send_to(b"CONNECT", &server_addr) {
         eprintln!("Failed to connect to server: {}", e);
         return;
     }
@@ -41,7 +41,7 @@ pub fn run_background_connection(tx: mpsc::Sender<Event>, own_rx: mpsc::Receiver
         // Handle own position updates
         if let Ok(Event::OwnPosition(player)) = own_rx.try_recv() {
             let json = serde_json::to_string(&player).unwrap();
-            let _ = socket.send_to(json.as_bytes(), server_addr);
+            let _ = socket.send_to(json.as_bytes(), &server_addr);
         }
     }
 }
@@ -121,8 +121,8 @@ pub async fn run_background_connection_async(
     mut own_rx: UnboundedReceiver<Event>,
 ) {
     let socket = tokio::net::UdpSocket::bind("0.0.0.0:0").await.unwrap();
-    let server_addr = "0.0.0.0:3000";
-    if let Err(e) = socket.send_to(b"CONNECT", server_addr).await {
+    let server_addr = env::var("SERVER_ADDR").unwrap();
+    if let Err(e) = socket.send_to(b"CONNECT", &server_addr).await {
         eprintln!("Failed to connect to server: {}", e);
         return;
     }
@@ -146,7 +146,7 @@ pub async fn run_background_connection_async(
             event = own_rx.recv() => {
                 if let Some(Event::OwnPosition(player)) = event {
                     let json = serde_json::to_string(&player).unwrap();
-                    let _ = socket.send_to(json.as_bytes(), server_addr).await;
+                    let _ = socket.send_to(json.as_bytes(), &server_addr).await;
                 }
             }
         }
